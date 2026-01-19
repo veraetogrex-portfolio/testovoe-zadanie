@@ -1,0 +1,604 @@
+{
+  "name": "1 задание",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gss01-vision",
+        "options": {}
+      },
+      "id": "0e4c4565-06e4-4a47-b9c2-ff4ff5525c39",
+      "name": "Webhook - New Render1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -2000,
+        656
+      ],
+      "webhookId": "gss01-vision-webhook"
+    },
+    {
+      "parameters": {
+        "tableId": "jobs",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "property_id",
+              "fieldValue": "={{ $json.body.property_id }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "QUEUED"
+            },
+            {
+              "fieldId": "batch_id",
+              "fieldValue": "={{ $json.batch_id || null }}"
+            }
+          ]
+        }
+      },
+      "id": "0fb94ff5-5387-4153-ad2c-3f21535fd300",
+      "name": "Supabase - Create Job1",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1360,
+        656
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "jobs",
+        "filterType": "string",
+        "filterString": "=id=eq.{{ $json.id }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "PROCESSING"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      },
+      "id": "1961ecde-8e43-4be5-8023-fc019b66324e",
+      "name": "Supabase - Set Processing1",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1136,
+        656
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{ \n  \"Authorization\": \"Bearer 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\",\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"google/gemini-2.0-flash-001\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"image_url\",\n          \"image_url\": {\n            \"url\": \"{{ $('Webhook - New Render1').item.json.body.image_url }}\"\n          }\n        },\n        {\n          \"type\": \"text\",\n          \"text\": \"ROLE: Vision AI Shot Classifier. TASK: Analyze this image and respond ONLY with valid JSON, no markdown, no code blocks. OUTPUT: { \\\"detected_scene\\\": \\\"SHOT_XX\\\", \\\"confidence\\\": 0.95, \\\"generated_prompt\\\": \\\"Красивая квартира\\\", \\\"technical_tags\\\": [\\\"Голова\\\"], \\\"motion_recommendation\\\": \\\"MOTION_X\\\" }\"\n        }\n      ]\n    }\n  ]\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "d1bc8ef9-0be8-45f7-8696-83e6ca74527e",
+      "name": "Perplexity Vision API1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -912,
+        656
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем данные из предыдущих нод\nconst webhookData = $('Webhook - New Render1').item.json;\nconst jobData = $('Supabase - Create Job1').item.json;\nconst apiResponse = $input.item.json;\n\n// Засекаем время обработки\nconst startTime = new Date(jobData.created_at);\nconst processingTimeSec = Math.round((Date.now() - startTime.getTime()) / 1000);\n\nlet parsedAnalysis = null;\nlet parseError = null;\n\ntry {\n  // Извлекаем контент из ответа Perplexity\n  const content = apiResponse.choices?.[0]?.message?.content || '';\n  \n  // Пытаемся найти JSON в ответе\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  \n  if (jsonMatch) {\n    parsedAnalysis = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found in response');\n  }\n} catch (e) {\n  parseError = e.message;\n  // Создаём fallback структуру\n  parsedAnalysis = {\n    detected_scene: 'UNKNOWN',\n    confidence: 0,\n    generated_prompt: '',\n    technical_tags: [],\n    motion_recommendation: 'MOTION_A'\n  };\n}\n\nreturn {\n  json: {\n    job_id: jobData.id,\n    property_id: webhookData.property_id,\n    source_image_url: webhookData.image_url,\n    detected_shot_type: parsedAnalysis.detected_scene,\n    confidence: parsedAnalysis.confidence,\n    generated_prompt: parsedAnalysis.generated_prompt,\n    technical_tags: parsedAnalysis.technical_tags,\n    motion_recommendation: parsedAnalysis.motion_recommendation,\n    full_analysis: parsedAnalysis,\n    processing_time_sec: processingTimeSec,\n    parse_error: parseError,\n    success: !parseError\n  }\n};"
+      },
+      "id": "3822a0f4-99b3-49b5-ad1f-0b18b2f9ac47",
+      "name": "Parse AI Response1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4a642d89-37ef-43a1-8db3-3be05694e6ca",
+      "name": "Check Success1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "renders",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "job_id",
+              "fieldValue": "={{ $json.job_id }}"
+            },
+            {
+              "fieldId": "source_image_url",
+              "fieldValue": "={{ $('Webhook - New Render1').item.json.body.image_url }}"
+            },
+            {
+              "fieldId": "detected_shot_type",
+              "fieldValue": "={{ $json.detected_shot_type }}"
+            },
+            {
+              "fieldId": "confidence",
+              "fieldValue": "={{ $json.confidence }}"
+            },
+            {
+              "fieldId": "generated_prompt",
+              "fieldValue": "={{ $json.generated_prompt }}"
+            },
+            {
+              "fieldId": "technical_tags",
+              "fieldValue": "={{ JSON.stringify($json.technical_tags) }}"
+            },
+            {
+              "fieldId": "motion_recommendation",
+              "fieldValue": "={{ $json.motion_recommendation }}"
+            },
+            {
+              "fieldId": "full_analysis",
+              "fieldValue": "={{ JSON.stringify($json.full_analysis) }}"
+            },
+            {
+              "fieldId": "processing_time_sec",
+              "fieldValue": "={{ $json.processing_time_sec }}"
+            }
+          ]
+        }
+      },
+      "id": "e55821dc-a501-4de8-8690-940416ab2bc9",
+      "name": "Supabase - Save Render1",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        544
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "jobs",
+        "filterType": "string",
+        "filterString": "=id=eq.{{ $('Parse AI Response1').item.json.job_id }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "CLASSIFIED"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      },
+      "id": "6fd19d68-7372-4208-8f72-e8744f0d245e",
+      "name": "Supabase - Set Classified1",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        544
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "renders",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "job_id",
+              "fieldValue": "={{ $json.job_id }}"
+            },
+            {
+              "fieldId": "source_image_url",
+              "fieldValue": "={{ $('Webhook - New Render1').item.json.body.image_url }}"
+            },
+            {
+              "fieldId": "error_message",
+              "fieldValue": "={{ $json.parse_error || 'Unknown error during processing' }}"
+            },
+            {
+              "fieldId": "processing_time_sec",
+              "fieldValue": "={{ $json.processing_time_sec }}"
+            }
+          ]
+        }
+      },
+      "id": "a5d43a86-46f7-4209-922c-9d483687ef88",
+      "name": "Supabase - Save Error1",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        752
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "jobs",
+        "filterType": "string",
+        "filterString": "=id=eq.{{ $('Parse AI Response1').item.json.job_id }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "FAILED"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      },
+      "id": "834da681-94c3-496b-928f-01eca218cfbb",
+      "name": "Supabase - Set Failed1",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        752
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "jobs",
+        "limit": 1,
+        "filterType": "string",
+        "filterString": "=property_id=eq.{{ $json.body.property_id }}&status=neq.FAILED"
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1792,
+        656
+      ],
+      "id": "0152c102-272b-45da-84c9-44146dadaf5c",
+      "name": "Check Duplicate",
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "638904c6-78da-43c3-b8dc-a4e7da25c8c6",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1584,
+        656
+      ],
+      "id": "ecd6477c-fa2d-4115-be44-b9388f5e51e6",
+      "name": "If"
+    }
+  ],
+  "pinData": {
+    "Webhook - New Render1": [
+      {
+        "json": {
+          "headers": {
+            "host": "testovoe-zadanie.app.n8n.cloud",
+            "user-agent": "PostmanRuntime/7.51.0",
+            "content-length": "399",
+            "accept": "*/*",
+            "accept-encoding": "gzip, br",
+            "cache-control": "no-cache",
+            "cdn-loop": "cloudflare; loops=1; subreqs=1",
+            "cf-connecting-ip": "147.45.173.37",
+            "cf-ew-via": "15",
+            "cf-ipcountry": "NL",
+            "cf-ray": "9c06c86662d3feaf-AMS",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "cf-worker": "n8n.cloud",
+            "content-type": "application/json",
+            "postman-token": "bac12a31-fb8f-4d30-a411-5c0b0638ab02",
+            "x-forwarded-for": "147.45.173.37, 172.71.95.43",
+            "x-forwarded-host": "testovoe-zadanie.app.n8n.cloud",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "traefik-prod-users-gwc-41-785c66d969-9lbbv",
+            "x-is-trusted": "yes",
+            "x-real-ip": "147.45.173.37"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "event": "new_render_uploaded",
+            "property_id": "magnolia_dubai_001",
+            "image_url": "https://cdn.discordapp.com/attachments/1432970342984450151/1462801754180812810/sunset-living-luxury-stockcake.webp?ex=696f83cb&is=696e324b&hm=636bd3b099683b60395fa45eac7734b597bf3ab8f70e934e12622e5d81aba425",
+            "context": {
+              "location": "Dubai Downtown",
+              "time_of_day": "golden_hour"
+            }
+          },
+          "webhookUrl": "https://testovoe-zadanie.app.n8n.cloud/webhook-test/gss01-vision",
+          "executionMode": "test"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook - New Render1": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Create Job1": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Set Processing1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Set Processing1": {
+      "main": [
+        [
+          {
+            "node": "Perplexity Vision API1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perplexity Vision API1": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse AI Response1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response1": {
+      "main": [
+        [
+          {
+            "node": "Check Success1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Success1": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Save Render1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase - Save Error1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Save Render1": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Set Classified1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Set Classified1": {
+      "main": [
+        []
+      ]
+    },
+    "Supabase - Save Error1": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Set Failed1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Set Failed1": {
+      "main": [
+        []
+      ]
+    },
+    "Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Supabase - Create Job1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "9c641b89-aab5-474f-9ddc-f605f4f1ff15",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "238f93614e94f53b79e2c3e758594bd9c26b993d98c5bb9be2324be9f8d31ce4"
+  },
+  "id": "zAzC3-JtIYyVZwLJ30jid",
+  "tags": [
+    {
+      "updatedAt": "2026-01-18T07:15:44.170Z",
+      "createdAt": "2026-01-18T07:15:44.170Z",
+      "id": "8lRLVJ9zTF7Q3FZm",
+      "name": "Supabase"
+    },
+    {
+      "updatedAt": "2026-01-18T06:47:27.572Z",
+      "createdAt": "2026-01-18T06:47:27.572Z",
+      "id": "LCVP04kOxyH8QSN6",
+      "name": "Vision-AI"
+    },
+    {
+      "updatedAt": "2026-01-18T07:19:33.303Z",
+      "createdAt": "2026-01-18T07:19:33.303Z",
+      "id": "Z2o3VaxgotsGUExl",
+      "name": "Supabase-Native"
+    },
+    {
+      "updatedAt": "2026-01-18T06:47:27.605Z",
+      "createdAt": "2026-01-18T06:47:27.605Z",
+      "id": "xnRbvfhHQxuG9VAj",
+      "name": "GSS-Pipeline"
+    }
+  ]
+}

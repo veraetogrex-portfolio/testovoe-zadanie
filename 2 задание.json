@@ -1,0 +1,559 @@
+{
+  "name": "2 задание",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gss02-qc-result",
+        "options": {}
+      },
+      "id": "130a5912-bfb8-4e15-8193-aeb4f8300041",
+      "name": "Webhook - QC Result",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        160
+      ],
+      "webhookId": "gss02-qc-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "generation_attempts",
+        "limit": 1,
+        "filterType": "string",
+        "filterString": "=render_id=eq.{{ $json.body.render_id }}&order=attempt_number.desc"
+      },
+      "id": "0019f655-c283-4baa-b2c3-5630748803ac",
+      "name": "Supabase - Get Last Attempt",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -704,
+        160
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем данные\nconst webhookData = $('Webhook - QC Result').item.json;\n\n// Защита от пустого результата Supabase (первая попытка)\nconst lastAttemptArray = $input.all();\nconst lastAttempt = lastAttemptArray.length > 0 ? lastAttemptArray[0].json : null;\n\n// Определяем номер текущей попытки\nconst currentAttemptNumber = lastAttempt?.attempt_number || 0;\nconst nextAttemptNumber = currentAttemptNumber + 1;\n\n// Получаем последние параметры или дефолтные\nconst lastParams = lastAttempt?.parameters || {\n  structure_scale: 0.50,\n  cfg_scale: 7.5,\n  steps: 50,\n  sampler: 'DPM++'\n};\n\n// Вычисляем новые параметры на основе suggested_fix\nlet newParams = { ...lastParams };\nconst suggestedFix = webhookData.qc_result?.suggested_fix || '';\n\nswitch (suggestedFix) {\n  case 'increase_structure_strength':\n    newParams.structure_scale = Math.min(parseFloat(lastParams.structure_scale) + 0.10, 1.0);\n    break;\n  case 'reduce_artifacts':\n    newParams.cfg_scale = Math.max(parseFloat(lastParams.cfg_scale) - 0.5, 3.0);\n    break;\n  case 'increase_detail':\n    newParams.cfg_scale = Math.min(parseFloat(lastParams.cfg_scale) + 0.5, 15.0);\n    break;\n  case 'smooth_geometry':\n    newParams.structure_scale = Math.max(parseFloat(lastParams.structure_scale) - 0.05, 0.2);\n    break;\n  default:\n    newParams.structure_scale = Math.min(parseFloat(lastParams.structure_scale) + 0.05, 1.0);\n}\n\n// Округляем значения\nnewParams.structure_scale = Math.round(newParams.structure_scale * 100) / 100;\nnewParams.cfg_scale = Math.round(newParams.cfg_scale * 10) / 10;\n\n// Определяем действие\nconst verdict = webhookData.qc_result?.verdict || 'UNKNOWN';\nconst shouldRetry = verdict === 'FAIL' && nextAttemptNumber <= 3;\nconst isFatalError = verdict === 'FAIL' && nextAttemptNumber > 3;\nconst isSuccess = verdict === 'PASS';\n\nreturn {\n  json: {\n    job_id: webhookData.job_id,\n    render_id: webhookData.render_id,\n    verdict: verdict,\n    failure_reason: webhookData.qc_result?.reason || '',\n    suggested_fix: suggestedFix,\n    confidence: webhookData.qc_result?.confidence || 0,\n    current_attempt: currentAttemptNumber,\n    next_attempt: nextAttemptNumber,\n    last_params: lastParams,\n    new_params: newParams,\n    action: shouldRetry ? 'RETRY' : (isFatalError ? 'FATAL_ERROR' : (isSuccess ? 'SUCCESS' : 'UNKNOWN')),\n    should_retry: shouldRetry,\n    is_fatal_error: isFatalError,\n    is_success: isSuccess\n  }\n};"
+      },
+      "id": "8a805047-6f9b-4b70-a1db-b4c44b8729b8",
+      "name": "Calculate New Parameters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -496,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "RETRY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "deb9f42b-6de3-4f4c-b32e-f594980c4944"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "RETRY"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "FATAL_ERROR",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "cff7f545-422b-4317-a0fc-690dc1de75c3"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "FATAL_ERROR"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "SUCCESS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c5dbb64a-4edb-4e0f-b69d-df4d8183e7c5"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SUCCESS"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d1c389bb-ab3b-4d93-b493-db3aac453a37",
+      "name": "Switch - Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -272,
+        160
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.nanobanana.ai/v1/generate",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\",\n  \"Authorization\": \"Bearer YOUR_REAL_API_KEY\"\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"image_id\": \"{{ $json.render_id }}\",\n  \"parameters\": {\n    \"structure_scale\": {{ $json.new_params.structure_scale }},\n    \"cfg_scale\": {{ $json.new_params.cfg_scale }},\n    \"steps\": {{ $json.new_params.steps }},\n    \"sampler\": \"{{ $json.new_params.sampler }}\"\n  }\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "7b8d417f-8749-4d84-a423-2f5154f84e88",
+      "name": "Nano Banana API - Regenerate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "tableId": "generation_attempts",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldValue": "={{ $('Calculate New Parameters').item.json.render_id }}"
+            },
+            {
+              "fieldValue": "={{ $('Calculate New Parameters').item.json.next_attempt }}"
+            },
+            {
+              "fieldValue": "={{ JSON.stringify($('Calculate New Parameters').item.json.new_params) }}"
+            },
+            {
+              "fieldValue": "={{ $('Calculate New Parameters').item.json.verdict }}"
+            },
+            {
+              "fieldValue": "={{ $('Calculate New Parameters').item.json.failure_reason }}"
+            },
+            {
+              "fieldValue": "={{ $('Calculate New Parameters').item.json.suggested_fix }}"
+            },
+            {
+              "fieldValue": "={{ JSON.stringify($json) }}"
+            }
+          ]
+        }
+      },
+      "id": "074b7423-be39-4c7a-af16-297993cd29b2",
+      "name": "Supabase - Save Attempt",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        0
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "jobs",
+        "filterType": "string",
+        "filterString": "=id=eq.{{ $('Calculate New Parameters').item.json.job_id }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldValue": "GENERATING"
+            },
+            {
+              "fieldValue": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      },
+      "id": "f73898a5-de97-431a-a7b4-bf2254de2896",
+      "name": "Supabase - Set Generating",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        448,
+        0
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "jobs",
+        "filterType": "string",
+        "filterString": "=id=eq.{{ $json.job_id }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldValue": "MANUAL_REVIEW"
+            },
+            {
+              "fieldValue": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      },
+      "id": "f4b85670-f1e7-4159-ae31-5f595cb882d5",
+      "name": "Supabase - Set Manual Review",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        0,
+        160
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "generation_attempts",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldValue": "={{ $('Calculate New Parameters').item.json.render_id }}"
+            },
+            {
+              "fieldValue": "={{ $('Calculate New Parameters').item.json.next_attempt }}"
+            },
+            {
+              "fieldValue": "FAIL"
+            },
+            {
+              "fieldValue": "FATAL_ERROR: Max retries exceeded (3 attempts)"
+            }
+          ]
+        }
+      },
+      "id": "dc40f705-a389-4cba-b251-15e5120a8eb0",
+      "name": "Supabase - Save Fatal Attempt",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        160
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "text": "=:rotating_light: *FATAL ERROR - Manual Review Required*\n\n*Job ID:* `{{ $('Calculate New Parameters').item.json.job_id }}`\n*Render ID:* `{{ $('Calculate New Parameters').item.json.render_id }}`\n*Attempts:* {{ $('Calculate New Parameters').item.json.current_attempt }}/3\n*Last Error:* {{ $('Calculate New Parameters').item.json.failure_reason }}\n*Suggested Fix:* {{ $('Calculate New Parameters').item.json.suggested_fix }}\n\nКартинка не поправляется автоматически, нужна ручная работа.",
+        "otherOptions": {}
+      },
+      "id": "349e66c6-4de7-43ff-a761-adfd8e35f8a1",
+      "name": "Slack - Fatal Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        160
+      ],
+      "webhookId": "78a10456-e831-4d3b-9835-9c9f332392db",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "jobs",
+        "filterType": "string",
+        "filterString": "=id=eq.{{ $json.job_id }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldValue": "COMPLETED"
+            },
+            {
+              "fieldValue": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      },
+      "id": "fee8ed0c-8e2f-4d6d-b41d-b7a4847137cb",
+      "name": "Supabase - Set Completed",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        0,
+        304
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "generation_attempts",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldValue": "={{ $json.render_id }}"
+            },
+            {
+              "fieldValue": "={{ $json.next_attempt }}"
+            },
+            {
+              "fieldValue": "PASS"
+            },
+            {
+              "fieldValue": "={{ JSON.stringify($json.last_params) }}"
+            }
+          ]
+        }
+      },
+      "id": "169f78ac-b215-4410-bd1e-b9b19aec74d5",
+      "name": "Supabase - Save Success",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        304
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "TLGFDjPGF3LFDs2y",
+          "name": "Supabase account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - QC Result": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Get Last Attempt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Get Last Attempt": {
+      "main": [
+        [
+          {
+            "node": "Calculate New Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate New Parameters": {
+      "main": [
+        [
+          {
+            "node": "Switch - Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Action": {
+      "main": [
+        [
+          {
+            "node": "Nano Banana API - Regenerate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase - Set Manual Review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase - Set Completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nano Banana API - Regenerate": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Save Attempt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Save Attempt": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Set Generating",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Set Generating": {
+      "main": [
+        []
+      ]
+    },
+    "Supabase - Set Manual Review": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Save Fatal Attempt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Save Fatal Attempt": {
+      "main": [
+        [
+          {
+            "node": "Slack - Fatal Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Fatal Error Alert": {
+      "main": [
+        []
+      ]
+    },
+    "Supabase - Set Completed": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Save Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Save Success": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "4dfd700a-799b-4c46-9d51-8b3a3fdf0c51",
+  "meta": {
+    "instanceId": "238f93614e94f53b79e2c3e758594bd9c26b993d98c5bb9be2324be9f8d31ce4"
+  },
+  "id": "QLpsAhHzZcTifZGP_MxGB",
+  "tags": [
+    {
+      "updatedAt": "2026-01-19T14:04:01.115Z",
+      "createdAt": "2026-01-19T14:04:01.115Z",
+      "id": "h6ynmwVlDQ17cMGm",
+      "name": "State-Machine"
+    },
+    {
+      "updatedAt": "2026-01-19T14:04:01.065Z",
+      "createdAt": "2026-01-19T14:04:01.065Z",
+      "id": "vSXnSe1zzoJSb4kH",
+      "name": "Retry-Logic"
+    },
+    {
+      "updatedAt": "2026-01-18T06:47:27.605Z",
+      "createdAt": "2026-01-18T06:47:27.605Z",
+      "id": "xnRbvfhHQxuG9VAj",
+      "name": "GSS-Pipeline"
+    }
+  ]
+}
