@@ -63,11 +63,9 @@ gss-portfolio/
 │   └── gss02-retry-logic.json        # Workflow 2: Retry State Machine
 ├── screenshots/
 │   ├── gss01-workflow.png            # Общий вид GSS-01
-│   ├── gss01-perplexity-node.png     # Perplexity Vision API настройки
 │   ├── gss02-workflow.png            # Общий вид GSS-02
 │   ├── gss02-switch-node.png         # Switch - Action настройки
-│   ├── supabase-tables.png           # Структура БД
-│   └── supabase-renders.png          # Данные в renders
+│   └── supabase-tables.png           # Структура БД
 ├── queries.sql                        # SQL схема и запросы
 └── README.md                          # Документация
 ```
