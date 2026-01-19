@@ -101,29 +101,6 @@ SELECT * FROM renders WHERE technical_tags @> '["interior"]';
 - `v_retry_stats` — статистика повторных попыток
 - `v_recent_attempts` — история попыток
 
-## ⚙️ Конфигурация
-
-### Переменные окружения
-
-```bash
-# Supabase
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
-
-# OpenRouter (для Perplexity Vision)
-OPENROUTER_API_KEY=sk-or-v1-xxx
-
-# Slack (опционально)
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx
-```
-
-### Webhook URLs
-
-| Workflow | URL |
-|----------|-----|
-| GSS-01 | `POST /webhook/new-render` |
-| GSS-02 | `POST /webhook/gss02-qc-result` |
-
 ## 🚀 Запуск
 
 ### 1. Импорт в n8n
@@ -226,11 +203,4 @@ SELECT * FROM v_retry_stats;
 | `increase_detail` | cfg_scale += 0.5 (max 15.0) |
 | `smooth_geometry` | structure_scale -= 0.05 (min 0.2) |
 
-## 📝 Лицензия
 
-MIT License
-
-## 👤 Автор
-
-Вячеслав — Head of Support @ Pandaverse  
-n8n Automation Specialist
